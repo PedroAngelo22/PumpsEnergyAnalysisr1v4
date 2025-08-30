@@ -138,7 +138,6 @@ def gerar_diagrama_rede(sistema, vazao_total, distribuicao_vazao, fluido):
     dot.edge(ultimo_no, 'end')
     return dot
 
-# --- FUNÇÃO PARA GERAR O RELATÓRIO PDF (CORRIGIDA) ---
 def gerar_pdf_relatorio(resultados_analise, sistema_atual, vazao, distribuicao_vazao, fluido_selecionado, chart_data_sensibilidade):
     buffer = io.BytesIO(); doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm); styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=24, alignment=1, spaceAfter=20, textColor=PRIMARY_COLOR))
@@ -239,6 +238,7 @@ try:
     # Exibição de Resultados
     st.header("📊 Resultados da Análise da Rede (Caso Base)"); 
     c1,c2,c3,c4 = st.columns(4); c1.metric("Altura Total", f"{h_man_total:.2f} m"); c2.metric("Perda Total", f"{perda_total_sistema:.2f} m"); c3.metric("Potência Elétrica", f"{resultados_energia['potencia_eletrica_kW']:.2f} kW"); c4.metric("Custo Anual", f"R$ {resultados_energia['custo_anual']:.2f}")
+    
     st.header("🗺️ Diagrama da Rede")
     sistema_atual = {'antes': st.session_state.trechos_antes, 'paralelo': st.session_state.ramais_paralelos, 'depois': st.session_state.trechos_depois}
     diagram = None
@@ -246,7 +246,9 @@ try:
         diagram = gerar_diagrama_rede(sistema_atual, vazao_calc, distribuicao_vazao, fluido_selecionado_calc)
         st.graphviz_chart(diagram)
     else: st.info("O diagrama será exibido quando houver um cálculo paralelo bem-sucedido.")
+    
     st.divider()
+    
     chart_data_sensibilidade = pd.DataFrame()
     with st.expander("📈 Análise de Sensibilidade de Custo por Diâmetro"):
         escala_range = st.slider("Fator de Escala para Diâmetros (%)", 50, 200, (80, 120))
@@ -254,11 +256,28 @@ try:
         chart_data_sensibilidade = gerar_grafico_sensibilidade_diametro(sistema_atual, escala_range, **params_fixos)
         if not chart_data_sensibilidade.empty:
             st.line_chart(chart_data_sensibilidade.set_index('Fator de Escala nos Diâmetros (%)'))
+    
     st.divider()
+    
     st.subheader("Gerar Relatório PDF")
     resultados_para_pdf = {'h_man_total': h_man_total, 'perda_total_sistema': perda_total_sistema, 'potencia_eletrica_kW': resultados_energia['potencia_eletrica_kW'], 'custo_anual': resultados_energia['custo_anual']}
-    pdf_buffer = gerar_pdf_relatorio(resultados_para_pdf, sistema_atual, vazao_calc, distribuicao_vazao, fluido_selecionado_calc, chart_data_sensibilidade)
-    st.download_button(label="Download Relatório PDF", data=pdf_buffer, file_name="relatorio_rede_hidraulica.pdf", mime="application/pdf", use_container_width=True)
+    
+    pdf_buffer = gerar_pdf_relatorio(
+        resultados_para_pdf, 
+        sistema_atual, 
+        vazao_calc, 
+        distribuicao_vazao, 
+        fluido_selecionado_calc, 
+        chart_data_sensibilidade
+    )
+    
+    st.download_button(
+        label="Download Relatório PDF",
+        data=pdf_buffer,
+        file_name="relatorio_rede_hidraulica.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
 
 except Exception as e:
     # --- CORREÇÃO AQUI ---
