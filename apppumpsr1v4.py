@@ -7,6 +7,8 @@ from scipy.optimize import root
 import graphviz
 import matplotlib.pyplot as plt
 import io
+
+# Importações para ReportLab
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
@@ -17,7 +19,7 @@ from reportlab.lib.colors import HexColor
 plt.style.use('seaborn-v0_8-whitegrid')
 
 # --- Cores do PDF ---
-PRIMARY_COLOR = HexColor('#004173')
+PRIMARY_COLOR = HexColor('#004173') # Azul executivo
 
 # --- BIBLIOTECAS DE DADOS (K_FACTORS, FLUIDOS, MATERIAIS) ---
 MATERIAIS = {
@@ -33,18 +35,22 @@ K_FACTORS = {
 }
 FLUIDOS = { "Água a 20°C": {"rho": 998.2, "nu": 1.004e-6}, "Etanol a 20°C": {"rho": 789.0, "nu": 1.51e-6} }
 
-# (Funções de Callback, Funções de Cálculo e outras funções geradoras não mudam)
+# --- Funções de Callback ---
 def adicionar_item(tipo_lista):
     novo_id = time.time()
     st.session_state[tipo_lista].append({"id": novo_id, "comprimento": 10.0, "diametro": 100.0, "material": "Aço Carbono (novo)", "acessorios": []})
+
 def remover_ultimo_item(tipo_lista):
     if len(st.session_state[tipo_lista]) > 0: st.session_state[tipo_lista].pop()
+
 def adicionar_ramal_paralelo():
     novo_nome_ramal = f"Ramal {len(st.session_state.ramais_paralelos) + 1}"
     novo_id = time.time()
     st.session_state.ramais_paralelos[novo_nome_ramal] = [{"id": novo_id, "comprimento": 50.0, "diametro": 80.0, "material": "Aço Carbono (novo)", "acessorios": []}]
+
 def remover_ultimo_ramal():
     if len(st.session_state.ramais_paralelos) > 1: st.session_state.ramais_paralelos.popitem()
+
 def adicionar_acessorio(id_trecho, lista_trechos):
     nome_acessorio = st.session_state[f"selectbox_acessorio_{id_trecho}"]
     quantidade = st.session_state[f"quantidade_acessorio_{id_trecho}"]
@@ -52,19 +58,25 @@ def adicionar_acessorio(id_trecho, lista_trechos):
         if trecho["id"] == id_trecho:
             trecho["acessorios"].append({"nome": nome_acessorio, "k": K_FACTORS[nome_acessorio], "quantidade": int(quantidade)})
             break
+
+# --- Funções de Cálculo ---
 def calcular_perda_serie(lista_trechos, vazao_m3h, fluido_selecionado):
     perda_total = 0
     for trecho in lista_trechos:
         perdas = calcular_perdas_trecho(trecho, vazao_m3h, fluido_selecionado)
         perda_total += perdas["principal"] + perdas["localizada"]
     return perda_total
+
 def calcular_perdas_trecho(trecho, vazao_m3h, fluido_selecionado):
     if vazao_m3h < 0: vazao_m3h = 0
     rugosidade_mm = MATERIAIS[trecho["material"]]
     vazao_m3s, diametro_m = vazao_m3h / 3600, trecho["diametro"] / 1000
     nu = FLUIDOS[fluido_selecionado]["nu"]
     if diametro_m <= 0: return {"principal": 1e12, "localizada": 0, "velocidade": 0}
-    area = (math.pi * diametro_m**2) / 4; velocidade = vazao_m3s / area; reynolds = (velocidade * diametro_m) / nu if nu > 0 else 0; fator_atrito = 0
+    area = (math.pi * diametro_m**2) / 4
+    velocidade = vazao_m3s / area
+    reynolds = (velocidade * diametro_m) / nu if nu > 0 else 0
+    fator_atrito = 0
     if reynolds > 4000:
         rugosidade_m = rugosidade_mm / 1000
         log_term = math.log10((rugosidade_m / (3.7 * diametro_m)) + (5.74 / reynolds**0.9))
@@ -74,6 +86,7 @@ def calcular_perdas_trecho(trecho, vazao_m3h, fluido_selecionado):
     k_total_trecho = sum(ac["k"] * ac["quantidade"] for ac in trecho["acessorios"])
     perda_localizada = k_total_trecho * (velocidade**2 / (2 * 9.81))
     return {"principal": perda_principal, "localizada": perda_localizada, "velocidade": velocidade}
+
 def calcular_perdas_paralelo(ramais, vazao_total_m3h, fluido_selecionado):
     num_ramais = len(ramais)
     if num_ramais < 2: return 0, {}
@@ -92,11 +105,13 @@ def calcular_perdas_paralelo(ramais, vazao_total_m3h, fluido_selecionado):
     perda_final_paralelo = calcular_perda_serie(lista_ramais[0], vazoes_finais[0], fluido_selecionado)
     distribuicao_vazao = {nome_ramal: vazao for nome_ramal, vazao in zip(ramais.keys(), vazoes_finais)}
     return perda_final_paralelo, distribuicao_vazao
+
 def calcular_analise_energetica(vazao_m3h, h_man, eficiencia_bomba, eficiencia_motor, horas_dia, custo_kwh, fluido_selecionado):
     rho = FLUIDOS[fluido_selecionado]["rho"]
     potencia_eletrica_kW = (vazao_m3h / 3600 * rho * 9.81 * h_man) / (eficiencia_bomba * eficiencia_motor) / 1000 if eficiencia_bomba * eficiencia_motor > 0 else 0
     custo_anual = potencia_eletrica_kW * horas_dia * 30 * 12 * custo_kwh
     return {"potencia_eletrica_kW": potencia_eletrica_kW, "custo_anual": custo_anual}
+
 def gerar_grafico_sensibilidade_diametro(sistema_base, fator_escala_range, **params_fixos):
     custos, fatores = [], np.arange(fator_escala_range[0], fator_escala_range[1] + 1, 5)
     for fator in fatores:
@@ -116,6 +131,7 @@ def gerar_grafico_sensibilidade_diametro(sistema_base, fator_escala_range, **par
         resultado_energia = calcular_analise_energetica(params_fixos['vazao'], h_man, **params_fixos['equipamentos'])
         custos.append(resultado_energia['custo_anual'])
     return pd.DataFrame({'Fator de Escala nos Diâmetros (%)': fatores, 'Custo Anual de Energia (R$)': custos})
+
 def gerar_diagrama_rede(sistema, vazao_total, distribuicao_vazao, fluido):
     dot = graphviz.Digraph(comment='Rede de Tubulação'); dot.attr('graph', rankdir='LR', splines='ortho'); dot.attr('node', shape='point'); 
     dot.node('start', 'Bomba', shape='circle', style='filled', fillcolor='#ADD8E6', fontcolor='black', fontsize='10')
@@ -138,31 +154,71 @@ def gerar_diagrama_rede(sistema, vazao_total, distribuicao_vazao, fluido):
     dot.edge(ultimo_no, 'end')
     return dot
 
+# --- FUNÇÃO PARA GERAR O RELATÓRIO PDF (NOVA) ---
 def gerar_pdf_relatorio(resultados_analise, sistema_atual, vazao, distribuicao_vazao, fluido_selecionado, chart_data_sensibilidade):
-    buffer = io.BytesIO(); doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm); styles = getSampleStyleSheet()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+
+    # Estilos personalizados
     styles.add(ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=24, alignment=1, spaceAfter=20, textColor=PRIMARY_COLOR))
     styles.add(ParagraphStyle(name='Heading1', fontName='Helvetica-Bold', fontSize=18, spaceBefore=20, spaceAfter=10, textColor=PRIMARY_COLOR))
-    styles.add(ParagraphStyle(name='Normal', fontName='Helvetica', fontSize=10, leading=12))
+    styles.add(ParagraphStyle(name='Normal', fontName='Helvetica', fontSize=10, leading=14))
+
     story = []
-    story.append(Paragraph("Relatório de Análise de Rede Hidráulica", styles['TitleStyle'])); story.append(Spacer(0, 0.5*cm)); story.append(Paragraph(f"Data da Análise: {time.strftime('%d/%m/%Y %H:%M:%S')}", styles['Normal'])); story.append(Spacer(0, 1*cm))
-    story.append(Paragraph("1. Parâmetros de Entrada", styles['Heading1'])); story.append(Paragraph(f"**Fluido Selecionado:** {fluido_selecionado}", styles['Normal'])); story.append(Paragraph(f"**Vazão Total:** {vazao:.2f} m³/h", styles['Normal'])); story.append(Paragraph(f"**Altura Geométrica:** {st.session_state.h_geometrica:.2f} m", styles['Normal'])); story.append(Paragraph(f"**Eficiência da Bomba:** {st.session_state.rend_bomba:.0f}%", styles['Normal'])); story.append(Paragraph(f"**Eficiência do Motor:** {st.session_state.rend_motor:.0f}%", styles['Normal'])); story.append(Paragraph(f"**Horas por Dia:** {st.session_state.horas_por_dia:.1f}", styles['Normal'])); story.append(Paragraph(f"**Custo da Energia:** R$ {st.session_state.tarifa_energia:.2f}/kWh", styles['Normal'])); story.append(Spacer(0, 0.5*cm))
-    story.append(Paragraph("2. Resultados da Análise (Caso Base)", styles['Heading1'])); story.append(Paragraph(f"<font name='Helvetica-Bold' color='{PRIMARY_COLOR.hexval}'>Altura Manométrica Total:</font> {resultados_analise['h_man_total']:.2f} m", styles['Normal'])); story.append(Paragraph(f"<font name='Helvetica-Bold' color='{PRIMARY_COLOR.hexval}'>Perda de Carga Total:</font> {resultados_analise['perda_total_sistema']:.2f} m", styles['Normal'])); story.append(Paragraph(f"<font name='Helvetica-Bold' color='{PRIMARY_COLOR.hexval}'>Potência Elétrica:</font> {resultados_analise['potencia_eletrica_kW']:.2f} kW", styles['Normal'])); story.append(Paragraph(f"<font name='Helvetica-Bold' color='{PRIMARY_COLOR.hexval}'>Custo Anual de Energia:</font> R$ {resultados_analise['custo_anual']:.2f}", styles['Normal'])); story.append(Spacer(0, 1*cm))
-    story.append(Paragraph("3. Diagrama da Rede", styles['Heading1']))
+
+    # Título e Data
+    story.append(Paragraph("Relatório de Análise de Rede Hidráulica", styles['TitleStyle']))
+    story.append(Spacer(0, 0.5*cm))
+    story.append(Paragraph(f"Data da Análise: {time.strftime('%d/%m/%Y %H:%M:%S')}", styles['Normal']))
+    story.append(Spacer(0, 1*cm))
+
+    # Resultados Principais
+    story.append(Paragraph("1. Resumo da Análise (Caso Base)", styles['Heading1']))
+    resumo_texto = f"""
+        <b>Altura Manométrica Total:</b> {resultados_analise['h_man_total']:.2f} m<br/>
+        <b>Perda de Carga Total:</b> {resultados_analise['perda_total_sistema']:.2f} m<br/>
+        <b>Potência Elétrica Consumida:</b> {resultados_analise['potencia_eletrica_kW']:.2f} kW<br/>
+        <b>Custo Anual de Energia:</b> R$ {resultados_analise['custo_anual']:.2f}
+    """
+    story.append(Paragraph(resumo_texto, styles['Normal']))
+    story.append(Spacer(0, 1*cm))
+
+    # Diagrama da Rede
+    story.append(Paragraph("2. Diagrama da Rede", styles['Heading1']))
     if sistema_atual['paralelo'] and distribuicao_vazao:
-        # --- CORREÇÃO AQUI ---
-        # Usar .pipe() para renderizar em memória, não .render()
-        diagram_bytes = gerar_diagrama_rede(sistema_atual, vazao, distribuicao_vazao, fluido_selecionado).pipe(format='png')
-        diagram_img_path = io.BytesIO(diagram_bytes)
-        story.append(Image(diagram_img_path, width=18*cm, height=10*cm, kind='proportional'))
-    else: story.append(Paragraph("Diagrama não disponível.", styles['Normal']))
-    story.append(Spacer(0, 1*cm)); story.append(PageBreak())
-    story.append(Paragraph("4. Análise de Sensibilidade de Custo por Diâmetro", styles['Heading1']))
+        try:
+            diagram_bytes = gerar_diagrama_rede(sistema_atual, vazao, distribuicao_vazao, fluido_selecionado).pipe(format='png')
+            diagram_img_path = io.BytesIO(diagram_bytes)
+            story.append(Image(diagram_img_path, width=18*cm, height=10*cm, kind='proportional'))
+        except Exception as e:
+            story.append(Paragraph(f"Não foi possível gerar o diagrama: {str(e)}", styles['Normal']))
+    else:
+        story.append(Paragraph("Diagrama não disponível para a configuração atual.", styles['Normal']))
+    
+    story.append(PageBreak())
+
+    # Gráfico de Sensibilidade
+    story.append(Paragraph("3. Análise de Sensibilidade de Custo", styles['Heading1']))
     if not chart_data_sensibilidade.empty:
-        fig, ax = plt.subplots(figsize=(10, 6)); ax.plot(chart_data_sensibilidade['Fator de Escala nos Diâmetros (%)'], chart_data_sensibilidade['Custo Anual de Energia (R$)'], color=PRIMARY_COLOR.hexval); ax.scatter(chart_data_sensibilidade['Fator de Escala nos Diâmetros (%)'], chart_data_sensibilidade['Custo Anual de Energia (R$)'], color=PRIMARY_COLOR.hexval, s=50); ax.set_title('Custo Anual vs. Fator de Escala do Diâmetro', color=PRIMARY_COLOR.hexval); ax.set_xlabel('Fator de Escala nos Diâmetros (%)', color=PRIMARY_COLOR.hexval); ax.set_ylabel('Custo Anual de Energia (R$)', color=PRIMARY_COLOR.hexval); ax.tick_params(axis='x', colors=PRIMARY_COLOR.hexval); ax.tick_params(axis='y', colors=PRIMARY_COLOR.hexval); ax.grid(True, linestyle='--', alpha=0.6, color='gray')
-        chart_img_path = io.BytesIO(); plt.tight_layout(); plt.savefig(chart_img_path, format='png', bbox_inches='tight'); plt.close(fig); chart_img_path.seek(0)
-        story.append(Image(chart_img_path, width=18*cm)); story.append(Spacer(0, 1*cm))
-    else: story.append(Paragraph("Gráfico de sensibilidade não disponível.", styles['Normal']))
-    doc.build(story); buffer.seek(0)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(chart_data_sensibilidade['Fator de Escala nos Diâmetros (%)'], chart_data_sensibilidade['Custo Anual de Energia (R$)'], color=PRIMARY_COLOR.hexval, marker='o')
+        ax.set_title('Custo Anual vs. Fator de Escala do Diâmetro', color=PRIMARY_COLOR.hexval)
+        ax.set_xlabel('Fator de Escala nos Diâmetros (%)', color=PRIMARY_COLOR.hexval)
+        ax.set_ylabel('Custo Anual de Energia (R$)', color=PRIMARY_COLOR.hexval)
+        ax.tick_params(colors=PRIMARY_COLOR.hexval)
+        ax.grid(True, linestyle='--', alpha=0.6)
+        chart_img_path = io.BytesIO()
+        plt.tight_layout()
+        plt.savefig(chart_img_path, format='png', dpi=300)
+        plt.close(fig)
+        chart_img_path.seek(0)
+        story.append(Image(chart_img_path, width=16*cm))
+    else:
+        story.append(Paragraph("Gráfico de sensibilidade não foi gerado.", styles['Normal']))
+
+    doc.build(story)
+    buffer.seek(0)
     return buffer
 
 # --- Inicialização do Estado da Sessão ---
@@ -235,7 +291,6 @@ try:
     params_equipamentos = {'eficiencia_bomba': rend_bomba_calc/100, 'eficiencia_motor': rend_motor_calc/100, 'horas_dia': horas_por_dia_calc, 'custo_kwh': tarifa_energia_calc, 'fluido_selecionado': fluido_selecionado_calc}
     resultados_energia = calcular_analise_energetica(vazao_calc, h_man_total, **params_equipamentos)
 
-    # Exibição de Resultados
     st.header("📊 Resultados da Análise da Rede (Caso Base)"); 
     c1,c2,c3,c4 = st.columns(4); c1.metric("Altura Total", f"{h_man_total:.2f} m"); c2.metric("Perda Total", f"{perda_total_sistema:.2f} m"); c3.metric("Potência Elétrica", f"{resultados_energia['potencia_eletrica_kW']:.2f} kW"); c4.metric("Custo Anual", f"R$ {resultados_energia['custo_anual']:.2f}")
     
@@ -248,7 +303,6 @@ try:
     else: st.info("O diagrama será exibido quando houver um cálculo paralelo bem-sucedido.")
     
     st.divider()
-    
     chart_data_sensibilidade = pd.DataFrame()
     with st.expander("📈 Análise de Sensibilidade de Custo por Diâmetro"):
         escala_range = st.slider("Fator de Escala para Diâmetros (%)", 50, 200, (80, 120))
@@ -258,10 +312,11 @@ try:
             st.line_chart(chart_data_sensibilidade.set_index('Fator de Escala nos Diâmetros (%)'))
     
     st.divider()
-    
-    st.subheader("Gerar Relatório PDF")
+    st.header("📄 Gerar Relatório Executivo")
+    st.markdown("Clique no botão abaixo para gerar um relatório completo em PDF com todos os resultados, diagrama e gráfico de análise.")
     resultados_para_pdf = {'h_man_total': h_man_total, 'perda_total_sistema': perda_total_sistema, 'potencia_eletrica_kW': resultados_energia['potencia_eletrica_kW'], 'custo_anual': resultados_energia['custo_anual']}
     
+    # Gerar o PDF em memória quando o botão for clicado
     pdf_buffer = gerar_pdf_relatorio(
         resultados_para_pdf, 
         sistema_atual, 
@@ -272,14 +327,12 @@ try:
     )
     
     st.download_button(
-        label="Download Relatório PDF",
+        label="Download do Relatório em PDF",
         data=pdf_buffer,
-        file_name="relatorio_rede_hidraulica.pdf",
+        file_name=f"Relatorio_Hidraulico_{time.strftime('%Y%m%d_%H%M%S')}.pdf",
         mime="application/pdf",
         use_container_width=True
     )
 
 except Exception as e:
-    # --- CORREÇÃO AQUI ---
-    # Convertendo o objeto de exceção para string para exibição correta
-    st.error(f"Ocorreu um erro durante o cálculo. Verifique os parâmetros. Detalhe: {str(e)}")
+    st.error(f"Ocorreu um erro durante o cálculo. Verifique os parâmetros de entrada. Detalhe: {str(e)}")
